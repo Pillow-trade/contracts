@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -7,10 +7,18 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {AggregatorV3Interface} from "chainlink-evm/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {IEulerSwapPeriphery} from "./interfaces/IEulerSwapPeriphery.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+import {console2} from "forge-std/Test.sol";
 
 contract Pillow is ERC4626, Ownable(msg.sender) {
+  using Math for uint256;
   AggregatorV3Interface public immutable priceFeed;
   IEulerSwapPeriphery public eulerPeriphery;
+  address public eulerSwapper = 0x0D3d0F97eD816Ca3350D627AD8e57B6AD41774df;
+  address public eulerVerifier = 0x30660764A7a05B84608812C8AFC0Cb4845439EEe;
+  address public riskyAsset = 0x4200000000000000000000000000000000000006; // WETH
+  uint256 public constant PERCENTAGE_PRECISION = 10000;
 
   constructor(
     string memory _name,
@@ -28,7 +36,7 @@ contract Pillow is ERC4626, Ownable(msg.sender) {
   }
 
   // https://docs.chain.link/data-feeds/using-data-feeds
-  function getChainlinkDataFeedLatestAnswer() public view returns (int256) {
+  function getChainlinkDataFeedLatestAnswer() public view returns (int256, uint256) {
     // prettier-ignore
     (
       /* uint80 roundId */,
@@ -37,6 +45,43 @@ contract Pillow is ERC4626, Ownable(msg.sender) {
       /*uint256 updatedAt*/,
       /*uint80 answeredInRound*/
     ) = priceFeed.latestRoundData();
-    return answer;
+    uint256 decimals = priceFeed.decimals();
+    return (answer, decimals);
+  }
+
+  //252283340000
+
+  function rebalance(uint256 _percentageSafeAsset, uint256 _percentageRiskyAsset) external returns (uint256) {
+    require(_percentageSafeAsset + _percentageRiskyAsset == PERCENTAGE_PRECISION, "Invalid percentage");
+    (int256 price, uint256 decimals) = getChainlinkDataFeedLatestAnswer();
+    uint256 balanceRisky = IERC20(riskyAsset).balanceOf(address(this));
+    uint256 balanceSafe = IERC20(asset()).balanceOf(address(this));
+
+    uint256 balanceRiskyInSafe = Math.mulDiv(balanceRisky, uint256(price), 10 ** decimals);
+
+
+    uint256 totalBalance = balanceRiskyInSafe + balanceSafe / 1e6;
+
+    console2.log("balanceRiskyInSafe", balanceRiskyInSafe);
+    console2.log("balanceSafe", balanceSafe);
+    console2.log("totalBalance", totalBalance);
+
+    uint256 currentPercentageRisky = balanceRiskyInSafe / totalBalance * 10000;
+    uint256 currentPercentageSafe = balanceSafe / 1e6 / totalBalance * 10000;
+
+    console2.log("currentPercentageRisky", currentPercentageRisky);
+    console2.log("currentPercentageSafe", currentPercentageSafe);
+
+    return totalBalance;
+  }
+
+  function totalBalance() public view returns (uint256) {
+    (int256 price, uint256 decimals) = getChainlinkDataFeedLatestAnswer();
+    uint256 balanceRisky = IERC20(riskyAsset).balanceOf(address(this));
+    uint256 balanceSafe = IERC20(asset()).balanceOf(address(this));
+
+    uint256 balanceRiskyInSafe = Math.mulDiv(balanceRisky, uint256(price), 10 ** decimals);
+
+    return balanceRiskyInSafe + balanceSafe / 1e6;
   }
 }
