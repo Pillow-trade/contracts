@@ -19,6 +19,8 @@ contract Pillow is ERC4626, Ownable(msg.sender) {
   address public eulerVerifier = 0x30660764A7a05B84608812C8AFC0Cb4845439EEe;
   address public riskyAsset = 0x4200000000000000000000000000000000000006; // WETH
   uint256 public constant PERCENTAGE_PRECISION = 10000;
+  uint256 public safeAssetDecimals = 6;
+  uint256 public riskyAssetDecimals = 18;
 
   constructor(
     string memory _name,
@@ -53,35 +55,39 @@ contract Pillow is ERC4626, Ownable(msg.sender) {
 
   function rebalance(uint256 _percentageSafeAsset, uint256 _percentageRiskyAsset) external returns (uint256) {
     require(_percentageSafeAsset + _percentageRiskyAsset == PERCENTAGE_PRECISION, "Invalid percentage");
-    (int256 price, uint256 decimals) = getChainlinkDataFeedLatestAnswer();
-    uint256 balanceRisky = IERC20(riskyAsset).balanceOf(address(this));
-    uint256 balanceSafe = IERC20(asset()).balanceOf(address(this));
+    uint256 totalBalance = totalAssets();
+    uint256 totalRiskyInSafe = totalRiskyAssetsInSafe();
+    uint256 totalSafe = totalSafeAssets();
 
-    uint256 balanceRiskyInSafe = Math.mulDiv(balanceRisky, uint256(price), 10 ** decimals);
+    uint256 percentageRisky = totalRiskyInSafe / totalBalance * PERCENTAGE_PRECISION;
+    uint256 percentageSafe = totalSafe / totalBalance * PERCENTAGE_PRECISION;
 
-
-    uint256 totalBalance = balanceRiskyInSafe + balanceSafe / 1e6;
-
-    console2.log("balanceRiskyInSafe", balanceRiskyInSafe);
-    console2.log("balanceSafe", balanceSafe);
-    console2.log("totalBalance", totalBalance);
-
-    uint256 currentPercentageRisky = balanceRiskyInSafe / totalBalance * 10000;
-    uint256 currentPercentageSafe = balanceSafe / 1e6 / totalBalance * 10000;
-
-    console2.log("currentPercentageRisky", currentPercentageRisky);
-    console2.log("currentPercentageSafe", currentPercentageSafe);
+    console2.log("percentageRisky", percentageRisky);
+    console2.log("percentageSafe", percentageSafe);
 
     return totalBalance;
   }
 
-  function totalBalance() public view returns (uint256) {
+  function totalSafeAssets() public view returns (uint256) {
+    uint256 balanceSafe = IERC20(asset()).balanceOf(address(this));
+    uint256 difference = riskyAssetDecimals - safeAssetDecimals;
+    uint256 balanceSafeInWei = balanceSafe * 10 ** difference;
+    return balanceSafeInWei;
+  }
+
+  function totalRiskyAssetsInSafe() public view returns (uint256) {
     (int256 price, uint256 decimals) = getChainlinkDataFeedLatestAnswer();
     uint256 balanceRisky = IERC20(riskyAsset).balanceOf(address(this));
-    uint256 balanceSafe = IERC20(asset()).balanceOf(address(this));
+    uint256 difference = riskyAssetDecimals - decimals;
+    uint256 balanceRiskyInSafe = balanceRisky * uint256(price) * 10 ** difference;
+    return balanceRiskyInSafe;
+  }
 
-    uint256 balanceRiskyInSafe = Math.mulDiv(balanceRisky, uint256(price), 10 ** decimals);
+  function totalAssets() public view override returns (uint256) {
+    uint256 balanceRiskyInSafe = totalRiskyAssetsInSafe();
+    uint256 balanceSafeInWei = totalSafeAssets();
 
-    return balanceRiskyInSafe + balanceSafe / 1e6;
+    return balanceRiskyInSafe + balanceSafeInWei;
   }
 }
+
