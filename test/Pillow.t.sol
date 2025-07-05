@@ -80,4 +80,11 @@ contract PillowTest is Test {
     console2.log("totalBalance", totalBalance);
     vm.stopPrank();
   }
+
+  function testTotalAssets() public {
+    testDeployPillow();
+    depositUSDC(pillow);
+    uint256 totalBalance = pillow.totalAssets();
+    console2.log("totalBalance", totalBalance);
+  }
 }
